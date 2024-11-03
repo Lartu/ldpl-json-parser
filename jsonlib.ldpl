@@ -1,0 +1,169 @@
+PROCEDURE:
+SUB-PROCEDURE jsonlib/parse-json
+    PARAMETERS:
+        json_string IS TEXT
+        json_values IS MAP OF TEXTS
+        json_types IS MAP OF TEXTS
+    LOCAL DATA:
+        current_char IS TEXT
+        char_index IS NUMBER
+        str_length IS NUMBER
+        current_path IS LIST OF TEXTS
+        in_string IS NUMBER
+        next_char_escaped IS NUMBER
+        current_string IS TEXT
+        current_index IS NUMBER
+        path_length IS NUMBER
+        type_stack IS LIST OF NUMBER
+        type_stack_length IS NUMBER
+        current_type IS NUMBER
+        just_displayed_value IS NUMBER
+        path_string IS TEXT
+    PROCEDURE:
+        # PARSE JSON
+        STORE 0 IN char_index
+        GET LENGTH OF json_string IN str_length
+        WHILE char_index IS LESS THAN str_length DO
+            GET CHARACTER AT char_index FROM json_string IN current_char
+            GET LENGTH OF type_stack IN type_stack_length
+            IF type_stack_length IS GREATER THAN 0 THEN
+                SUBTRACT 1 FROM type_stack_length IN type_stack_length
+                STORE type_stack:type_stack_length IN current_type
+            ELSE
+                STORE 0 IN current_type
+            END IF
+            # If found an escaped character and is in a string
+            IF in_string IS EQUAL TO 1 AND next_char_escaped IS EQUAL TO 1 THEN
+                IN current_string JOIN current_string current_char
+                STORE 0 IN next_char_escaped
+            # If found " and is not in a string
+            ELSE IF current_char IS EQUAL TO "\"" AND in_string IS EQUAL TO 0 THEN
+                STORE 1 IN in_string
+                STORE "" IN current_string
+            # If found " and is in a string
+            ELSE IF current_char IS EQUAL TO "\"" AND in_string IS EQUAL TO 1 THEN
+                # DISPLAY "String: " current_string CRLF
+                STORE 0 IN in_string
+            # If found : and not in string
+            ELSE IF current_char IS EQUAL TO ":" AND in_string IS EQUAL TO 0 THEN
+                PUSH current_string TO current_path
+                CALL jsonlib/get_path_string WITH path_string current_path
+                STORE 0 IN just_displayed_value
+                STORE "" IN current_string
+            # If found [ and not in string
+            ELSE IF current_char IS EQUAL TO "[" AND in_string IS EQUAL TO 0 THEN
+                STORE "" IN current_string
+                CALL jsonlib/add_path_and_value_and_type WITH path_string "" "array" type_stack just_displayed_value json_values json_types
+                PUSH "0" TO current_path
+                CALL jsonlib/get_path_string WITH path_string current_path
+                STORE 0 IN just_displayed_value
+                PUSH 1 TO type_stack
+            # If found ] and not in string
+            ELSE IF current_char IS EQUAL TO "]" AND in_string IS EQUAL TO 0 THEN
+                CALL jsonlib/add_path_and_value_and_type WITH path_string current_string "scalar" type_stack just_displayed_value json_values json_types
+                STORE "" IN current_string
+                DELETE LAST ELEMENT OF current_path
+                DELETE LAST ELEMENT OF type_stack
+            # If found { and not in string
+            ELSE IF current_char IS EQUAL TO "{" AND in_string IS EQUAL TO 0 THEN
+                CALL jsonlib/add_path_and_value_and_type WITH path_string "" "object" type_stack just_displayed_value json_values json_types
+                PUSH 0 TO type_stack
+            # If found } and not in string
+            ELSE IF current_char IS EQUAL TO "}" AND in_string IS EQUAL TO 0 THEN
+                CALL jsonlib/add_path_and_value_and_type WITH path_string current_string "scalar" type_stack just_displayed_value json_values json_types
+                STORE "" IN current_string
+                DELETE LAST ELEMENT OF current_path
+                DELETE LAST ELEMENT OF type_stack
+            # If found , and in list and not in string
+            ELSE IF current_char IS EQUAL TO "," AND in_string IS EQUAL TO 0 AND current_type IS EQUAL TO 1 THEN
+                CALL jsonlib/add_path_and_value_and_type WITH path_string current_string "scalar" type_stack just_displayed_value json_values json_types
+                GET LENGTH OF current_path IN path_length
+                SUBTRACT 1 FROM path_length IN path_length
+                STORE current_path:path_length IN current_index
+                ADD 1 AND current_index IN current_index
+                DELETE LAST ELEMENT OF current_path
+                STORE current_index IN current_string
+                PUSH current_string TO current_path
+                CALL jsonlib/get_path_string WITH path_string current_path
+                STORE 0 IN just_displayed_value
+                STORE "" IN current_string
+            # If found , and not in list and not in string
+            ELSE IF current_char IS EQUAL TO "," AND in_string IS EQUAL TO 0 AND current_type IS EQUAL TO 0 THEN
+                DELETE LAST ELEMENT OF current_path
+                CALL jsonlib/add_path_and_value_and_type WITH path_string current_string "scalar" type_stack just_displayed_value json_values json_types
+                STORE "" IN current_string
+            # If found another character and is in a string
+            ELSE IF in_string IS EQUAL TO 1 THEN
+                IF current_char IS EQUAL TO "\\" THEN
+                    STORE 1 IN next_char_escaped
+                ELSE
+                    IN current_string JOIN current_string current_char
+                END IF
+            # If found another character and not in a string
+            ELSE IF in_string IS EQUAL TO 0 THEN
+                IF current_char IS NOT EQUAL TO "\n" AND current_char IS NOT EQUAL TO "\t" AND current_char IS NOT EQUAL TO "\v" AND current_char IS NOT EQUAL TO " " AND current_char IS NOT EQUAL TO "\r" THEN
+                    IN current_string JOIN current_string current_char
+                END IF
+            END IF
+
+            ADD 1 AND char_index IN char_index
+        REPEAT
+END SUB-PROCEDURE
+
+SUB-PROCEDURE jsonlib/get_path_string
+    PARAMETERS:
+        output_string IS TEXT
+        current_path IS LIST OF TEXTS
+    LOCAL DATA:
+        index IS NUMBER
+        len IS NUMBER
+        new_key IS TEXT
+    PROCEDURE:
+        STORE 0 IN index
+        GET LENGTH OF current_path IN len
+        STORE "" IN output_string
+        WHILE index IS LESS THAN len DO
+            IN output_string JOIN output_string "/"
+            REPLACE "~" WITH "~0" FROM current_path:index IN new_key
+            REPLACE "/" WITH "~1" FROM current_path:index IN new_key
+            IN output_string JOIN output_string  new_key
+            ADD index AND 1 IN index
+        REPEAT
+END SUB
+
+SUB-PROCEDURE jsonlib/add_path_and_value_and_type
+    PARAMETERS:
+        path IS TEXT
+        value IS TEXT
+        type IS TEXT
+        type_stack IS LIST OF NUMBER
+        just_displayed_value IS NUMBER
+        json_values IS MAP OF TEXTS
+        json_types IS MAP OF TEXTS
+    LOCAL DATA:
+        path_length IS NUMBER
+    PROCEDURE:
+        GET LENGTH OF type_stack IN path_length
+        IF path_length IS GREATER THAN 0 THEN
+            IF just_displayed_value IS EQUAL TO 0 THEN  # To ignore outer {}
+                STORE value IN json_values:path
+                STORE type IN json_types:path
+                STORE 1 IN just_displayed_value
+                # DISPLAY "Path: '" path "', Value: '" value "', Type: " type CRLF
+            END IF
+        END IF
+END SUB
+
+SUB-PROCEDURE jsonlib/parse-json-no-types
+    PARAMETERS:
+        json_string IS TEXT
+        json_values IS MAP OF TEXTS
+    LOCAL DATA:
+        empty-types IS MAP OF TEXTS  # For when the types are not desired
+    PROCEDURE:
+        CALL jsonlib/parse-json WITH json_string json_values empty-types
+
+END SUB-PROCEDURE
+
+CREATE STATEMENT "PARSE JSON $ VALUES INTO $ AND TYPES INTO $" EXECUTING jsonlib/parse-json
+CREATE STATEMENT "PARSE JSON $ VALUES INTO $" EXECUTING jsonlib/parse-json-no-types
