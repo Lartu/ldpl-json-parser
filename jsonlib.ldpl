@@ -162,7 +162,6 @@ SUB-PROCEDURE jsonlib/parse-json-no-types
         empty-types IS MAP OF TEXTS  # For when the types are not desired
     PROCEDURE:
         CALL jsonlib/parse-json WITH json_string json_values empty-types
-
 END SUB-PROCEDURE
 
 CREATE STATEMENT "PARSE JSON $ VALUES INTO $ AND TYPES INTO $" EXECUTING jsonlib/parse-json
